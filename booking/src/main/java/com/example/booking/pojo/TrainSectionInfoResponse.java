@@ -16,4 +16,6 @@ public class TrainSectionInfoResponse {
     private Integer seatNumber;
 
     private String section;
+
+     private Long trainSeatId;
 }
