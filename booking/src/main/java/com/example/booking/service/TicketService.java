@@ -12,7 +12,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 
 @Service
@@ -81,7 +86,25 @@ public class TicketService {
         List<TrainSeat> trainSeatList = trainSeatRepository.getByTrainIdAndSection(trainId, section);
         List<Passenger> passengerList = passengerRepository.getByTrainSeatIds(trainSeatList.stream().map(TrainSeat::getId).toList());
 
-        return passengerList.stream().map(passenger -> this.buildTrainSectionInfoResponse(trainId, section, passenger)).toList();
+        List<TrainSectionInfoResponse> occupiedTrainSectionInfoResponseList
+                = passengerList.stream().map(passenger -> this.buildTrainSectionInfoResponse(trainId, section, passenger)).toList();
+
+        Set<Long> occupiedTrainSeatIds = occupiedTrainSectionInfoResponseList.stream().map(TrainSectionInfoResponse::getTrainSeatId).collect(Collectors.toSet());
+        List<TrainSectionInfoResponse> unoccupiedTrainSectionInfoResponseList = new ArrayList<>();
+        trainSeatList.forEach(trainSeat -> {
+            if (!occupiedTrainSeatIds.contains(trainSeat.getId())) {
+                unoccupiedTrainSectionInfoResponseList.add(TrainSectionInfoResponse.builder()
+                        .trainSeatId(trainSeat.getId())
+                        .section(trainSeat.getSection())
+                        .seatNumber(trainSeat.getSeatNumber())
+                        .passenger(null)
+                        .build());
+            }
+        });
+
+        return Stream.concat(occupiedTrainSectionInfoResponseList.stream(),
+                        unoccupiedTrainSectionInfoResponseList.stream())
+                .collect(Collectors.toList());
     }
 
 
@@ -98,6 +121,7 @@ public class TicketService {
 
         for (TrainSeat trainSeat: emptyTrainSeats) {
             if (trainSeat.getSeatNumber().equals(modifySeatRequest.getNewSeatNumber())) {
+                this.removePassenger(trainSeat.getTrain().getId(), ticket.getPassenger().getId());
                 ticket.setTrainSeat(trainSeat);
                 ticketRepository.save(ticket);
                 return;
@@ -134,10 +158,11 @@ public class TicketService {
     }
 
     private TrainSectionInfoResponse buildTrainSectionInfoResponse(Long trainId, String section, Passenger passenger) {
+        TrainSeat trainSeat = passenger.getTickets().stream()
+                .filter(ticket -> ticket.getTrainSeat().getTrain().getId().equals(trainId))
+                .findFirst().map(Ticket::getTrainSeat).orElse(null);
         return TrainSectionInfoResponse.builder()
-                .seatNumber(passenger.getTickets().stream()
-                        .filter(ticket -> ticket.getTrainSeat().getTrain().getId().equals(trainId))
-                        .findFirst().map(ticket -> ticket.getTrainSeat().getSeatNumber()).orElse(null))
+                .seatNumber(Optional.ofNullable(trainSeat).map(TrainSeat::getSeatNumber).orElse(null))
                 .section(section)
                 .passenger(PassengerView.builder()
                         .passengerId(passenger.getId())
@@ -145,6 +170,7 @@ public class TicketService {
                         .firstName(passenger.getFirstName())
                         .lastName(passenger.getLastName())
                         .build())
+                .trainSeatId(Optional.ofNullable(trainSeat).map(TrainSeat::getId).orElse(null))
                 .build();
     }
 }
